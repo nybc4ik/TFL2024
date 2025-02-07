@@ -1,6 +1,6 @@
 import re
 
-
+# часть 1 чтение грамматики и преобразование её в более удобный для дальнейшей обработки вид!
 def parse_grammar(lines):
     """
     Тут разбор грамматики, например такой:
@@ -111,6 +111,61 @@ def parse_grammar(lines):
         grammar[left_nt].extend(rules)
     return grammar, start_symbol
 
+# часть 2 тут удаление правил
+def remove_rules(grammar, start_symbol):
+    """
+    Тут удаляются правила вида A -> C C -> B 
+    И возвращается обновлённая грамматика, где таких правил нет
+    """
+    nonterminals = list(grammar.keys())
+    # reachable[A] = множество нетерминалов, достижимых из A с помощью подобных правил
+    reachable = {A: set() for A in nonterminals}
+    
+    for A in nonterminals:
+        reachable[A].add(A)
+    
+    for A in nonterminals:
+        # поиск правил A -> B, где B нетерминал
+        queue = deque()
+        # сначала те B, которые непосредственно идут из A
+        for rule in grammar[A]:
+            if len(rule) == 1:
+                candidate = rule[0]
+                if candidate in grammar:  # тут candidate - нетерминал
+                    queue.append(candidate)
+        
+        while queue:
+            B = queue.popleft()
+            if B not in reachable[A]:
+                reachable[A].add(B)
+                # теперь добавление всего, куда ведёт B
+                for ruleB in grammar[B]:
+                    if len(ruleB) == 1:
+                        cand2 = ruleB[0]
+                        if cand2 in grammar and cand2 not in reachable[A]:
+                            queue.append(cand2)
+    
+    # удаляем всех подобных правил
+    new_grammar = {}
+    for A in nonterminals:
+        new_rules = []
+        for rule in grammar[A]:
+            # если правило A -> B, и B нетерминал, то это то что нужно! — удаляем.
+            if len(rule) == 1 and rule[0] in grammar:
+                continue
+            else:
+                new_rules.append(rule)
+        new_grammar[A] = new_rules
+    
+    # добавляение недостающих правил
+    for A in nonterminals:
+        for B in reachable[A]:
+            for ruleB in grammar[B]:
+                if not (len(ruleB) == 1 and ruleB[0] in grammar):
+                    if ruleB not in new_grammar[A]:  # чтобы не дублировать
+                        new_grammar[A].append(ruleB)
+    
+    return new_grammar, start_symbol
 
 
 # небольшие тесты 
@@ -135,5 +190,11 @@ print('проверка грамматики после преобразован
 grammar1, start_symbol = parse_grammar(grammar)
 
 print (grammar1, start_symbol)
+
+print("после удаления правил: ")
+
+new_grammar, start_symbol = remove_rules(grammar1, start_symbol)
+
+print(new_grammar)
 
 
