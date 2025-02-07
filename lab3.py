@@ -395,12 +395,12 @@ def lr0_parse(string, action_table, goto_table, states, grammar, start_symbol, a
 with open("grammar.txt", "r", encoding="utf-8") as file:
     grammar = [line.strip() for line in file if line.strip()]
 
-print("Заданная грамматика:")
+print("Заданная грамматика: ")
 print(grammar)
 
 grammar1, start_symbol = parse_grammar(grammar)
 
-print("Преобразованная грамматика:")
+print("Преобразованная грамматика: ")
 print(grammar1)
 print("Стартовый символ: ", start_symbol)
 
@@ -417,7 +417,7 @@ print("Стартовый символ: ", start_symbol)
 
 states1, transitions1, aug_start1 = build_lr0_automaton(grammar1, start_symbol)
 
-action_table_2, goto_table_2 = build_lr0_parse_table(states1, transitions1, grammar1, aug_start1)
+action_table_1, goto_table_1 = build_lr0_parse_table(states1, transitions1, grammar1, aug_start1)
 
 print("\n=== Состояния LR(0) для грамматики  ===")
 for i, st in enumerate(states1):
@@ -448,7 +448,7 @@ OK = True
 results = []
 
 for string, result in test_strings:
-    check = lr0_parse(string, action_table_2, goto_table_2, states1, grammar1, start_symbol, aug_start1)
+    check = lr0_parse(string, action_table_1, goto_table_1, states1, grammar1, start_symbol, aug_start1)
     check = int(check)
     print(f"Тестовая строка '{string}' -> {check}")
     results.append(f"{string} {check}")
