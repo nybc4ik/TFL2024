@@ -1,0 +1,11 @@
+aacbb 1
+aaaaaaacbbbbbbbb 1
+acb 1
+aacb 1
+c 1
+aaaaacbbbbb 1
+aaaaaaaaaaaaaacb 1
+aaaaaaacbbbbb 1
+aaacbbbb 1
+aaaacbbbbb 1
+aaaaaaaaa 0

@@ -1,0 +1,62 @@
+
+=== Состояния PDA на основе LR(0) для грамматики ===
+I0:
+    S -> · a S b
+    S -> · a A
+    S' -> · S
+    S -> · c
+    S -> · c b
+
+I1:
+    S -> c ·
+    S -> c · b
+
+I2:
+    S' -> S ·
+
+I3:
+    S -> · a A
+    A -> · c b
+    S -> a · S b
+    S -> · a S b
+    A -> · a A
+    S -> a · A
+    S -> · c
+    S -> · c b
+
+I4:
+    S -> c b ·
+
+I5:
+    S -> c · b
+    S -> c ·
+    A -> c · b
+
+I6:
+    S -> a A ·
+
+I7:
+    S -> a S · b
+
+I8:
+    S -> · a A
+    A -> · c b
+    S -> a · S b
+    S -> · a S b
+    A -> · a A
+    S -> a · A
+    S -> · c
+    S -> · c b
+    A -> a · A
+
+I9:
+    S -> c b ·
+    A -> c b ·
+
+I10:
+    S -> a S b ·
+
+I11:
+    A -> a A ·
+    S -> a A ·
+
