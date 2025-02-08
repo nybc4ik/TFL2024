@@ -1,149 +1,98 @@
-import re
+class RegexParserError(Exception):
+    pass
+
+class Lexeme:
+    def __init__(self, token_type, value=None):
+        self.token_type = token_type # тип лексемы (например CAP_OPEN для "(")
+        self.value = value # дополнительная цифра (например при ссылке на выражение (?1))
+
+    def __repr__(self):
+        return f"Lexeme({self.token_type}, {self.value})"
+
+# лексический анализатор
+class RegexLexer:
+    def __init__(self, input_text):
+        self.input_text = input_text
+        self.current_position = 0
+
+    def look_ahead(self):
+        if self.current_position < len(self.input_text):
+            return self.input_text[self.current_position]
+        return None
+
+    def move_forward(self):
+        self.current_position += 1
+
+    def analyze_text(self):
+        lexemes = []
+        while self.current_position < len(self.input_text):
+            current_char = self.look_ahead()
+            if current_char == '(':
+                self.move_forward()
+                next_char = self.look_ahead()
+                if next_char == '?':
+                    self.move_forward()
+                    next_next_char = self.look_ahead()
+                    if next_next_char == ':':
+                        self.move_forward()
+                        lexemes.append(Lexeme('NONCAP_OPEN'))
+                    elif next_next_char == '=':
+                        self.move_forward()
+                        lexemes.append(Lexeme('LOOKAHEAD_OPEN'))
+                    elif next_next_char and next_next_char.isdigit():
+                        self.move_forward()
+                        value = int(next_next_char)
+                        lexemes.append(Lexeme('EXPR_REF_OPEN', value))
+                    else:
+                        raise RegexParserError("Что-то не так после (?")
+                else:
+                    lexemes.append(Lexeme('CAP_OPEN'))
+            elif current_char == ')':
+                lexemes.append(Lexeme('CLOSE'))
+                self.move_forward()
+            elif current_char == '|':
+                lexemes.append(Lexeme('ALT'))
+                self.move_forward()
+            elif current_char == '*':
+                lexemes.append(Lexeme('STAR'))
+                self.move_forward()
+            elif current_char and 'a' <= current_char <= 'z':
+                lexemes.append(Lexeme('CHAR', current_char))
+                self.move_forward()
+            else:
+                raise RegexParserError(f"Что это? : {current_char}")
+        return lexemes
 
 
-def check_nested_lookaheads(regex): # проверка на наличие опережающей проверки, внутри опережающей проверки! 
-    stack = []
-    i = 0
-    while i < len(regex):
-        if regex[i:i+3] == '(?=': # начало опережающей проверки
-            stack.append('(?=')
-            i += 3
-        elif regex[i] == '(':
-            stack.append('(')
-            i += 1
-        elif regex[i] == ')':
-            if stack:
-                last = stack.pop() # закрытие опережающей проверки
-                if last == '(?=':  # проверка, что внутри нет другой опережающей проверки
-                    if '(?=' in stack:
-                        print("Нарушение: вложенные опережающие проверки!")
-                        return(0)
-            i += 1
-        else:
-            i += 1
-    return(1)
 
+# тестирование
 
-def check_groups_in_lookaheads(regex): # проверяем отсутствие захваченных групп внутри опережающих проверок
-    stack = []
-    i = 0
-    while i < len(regex):
-        if regex[i:i+3] == '(?=':  # начало опережающей проверки
-            stack.append(i)  # индекс начала опережающей проверки
-            i += 3
-        elif regex[i] == '(':
-            stack.append(i)  # индекс начала группы
-            i += 1
-        elif regex[i] == ')':
-            if stack:
-                last_index = stack.pop()  # последний индекс
-                if regex[last_index:last_index+3] == '(?=':  # проверяем, была ли это опережающая проверка
-                    # вытаскиваем часть строки внутри опережающей проверки
-                    inner_part = regex[last_index + 3:i]
-                    # проверка наличия захваченных групп внутри
-                    if re.search(r'\([^?]', inner_part):
-                        print("Нарушение: захваченные группы внутри опережающих проверок!")
-                        return False
-            i += 1
-        else:
-            i += 1
-    return True
-
-
-def counter(s): # работа со скобками
-    open_count = s.count('(')
-    close_count = s.count(')')
-    if open_count == close_count:
-        return (open_count)
-    else:
-        return(0)
-
-
-def chec_regex (regex):
-    # очевидные ошибки и недоработки! например случайные двойные || - палочки и прочие радости опечаток (случайных конечно!) будут в этом блоке:    
-    # Проверка на двойные или более '||' (многократные вертикальные черты)
-    if re.search(r'\|{2,}', regex):
-        print("Ошибка: Что-то не так с палочками '||', возможно их две... или даже больше.")
-        return 0       
-
-    # проверка на вертикальную черту в начале или в конце
-    if regex.startswith('|') or regex.endswith('|'):
-        print("Ошибка: Палочка находится '|' в начале или в конце.")
-        return 0
-
-    # проверка на использование символов, которые не могут стоять после оператора '|'
-    if re.search(r'\|\*', regex):
-        print("Ошибка: А что забыла '*' после '|'?")
-        return 0
-    
-    # Проверка на некорректные ссылки на группы (например, (?1) без контекста) требуется доработка!
-    all_groups = regex.count('(') - regex.count('(?')  # Подсчёт захватывающих групп
-    references = re.findall(r'\(\?(\d+)\)', regex)  # Поиск ссылок на группы
-    for ref in references:
-        if int(ref) > all_groups:
-            print("Ошибка: Не существует группы указанного индекса.")
-            return 0
-        
-    # проверка на избыточные скобки, например, ((a))
-    if re.search(r'\(\(.*\)\)', regex):
-        print("Ошибка: Слишком много скобок, например '((a))'.")
-        return 0
-    
-    skobki = counter(regex)
-    if skobki == 0:  # где-то проблемы со скобками :(
-        print("где-то проблемы со скобками!")
-        return (0)
-    
-    elif skobki > 9: # нарушение первого правила! не более девяти скобок
-        print("Нарушение первого правила, не более девяти скобок!")
-        return (0)
-    
-    if not check_nested_lookaheads(regex):  # проверка на наличие опережающей проверки, внутри опережающей проверки! 
-        return 0
-    
-    if not check_groups_in_lookaheads(regex):  # проверяем отсутствие захваченных групп внутри опережающих проверок
-        return 0
-    return(1)
-
-#regex = input()
-#print (regex)
-#print(chec_regex(regex))
-
-
-# вариант 5
-# правила для проверки:
-# не более 9 () круглых скобок! в выражении 
-# нет опережающих проверок в опережающих проверках  
-# внутри опережающих проверок не допускаются захваченные группы (круглые скобки)
-"""
-# тестовые примеры
-test_regex = [
-    "(a|(?=b))",  # корректное выражение
-    "(a(?=b(?=c)))",  # вложенные опережающие проверки
-    "(?=(a(b)))",  # захваченные группы внутри опережающих проверок
-    "(a|b)(c|d)",  # корректное выражение
-    "(a|b)(c|d)(e|f)(g|h)(i|j)(k|l)(m|n)(o|p)(q|r)(s|t)",  # превышение лимита скобок
+test_patterns = [
+    "()",  # Пустая группа
+    "(a|b)(c|d)(e|f)(g|h)(i|j)(k|l)(m|n)(o|p)(q|r)",  # 9 групп
+    "(a|b)(c|d)(e|f)(g|h)(i|j)(k|l)(m|n)(o|p)(q|r)(s|t)",  # 10 групп (ошибка)
+    "((?1))",  # Правильная рекурсия
+    "*a",
+    "a))",
+    "()",  # не ок
+    "(a|b)(?=c)",  # ок
+    "a)",
+    "a|",
+    "|a",
+    "(a|*)",
+    "(a|(ab))",
+    "(a|*)",
+    "((?=ab*(?:a|a*))(a|b))*aa",  # ок
+    "(a*)*(?=a)*",  # ок
+    "((?=ab*(a|a*))(a|b))*aa",  # не ок
+    "aaa|(?=ab)a*b*a*",
+    "(a|b)c*"
 ]
 
-for regex in test_regex:
-    print(f"Проверка: {regex}")
-    result = chec_regex(regex)
-    print(f"Результат: {'Всё хорошо!' if result else 'Что-то пошло не так!'}\n")
-"""
-# тестирование на опечатки, и другие проблемные места 
-test_regex = [
-    "(a||b)", # нет
-    "|b", # нет
-    "a|*", # нет
-    "((a))", # нет
-    "(?1)", # нет
-    "(?1)(a|b)", # можно
-    "(?1)(a|b)*(?1)", # можно
-    "(a(?1)b|c)" # можно 
-
-]
-
-for regex in test_regex:
-    print(f"Проверка: {regex}")
-    result = chec_regex(regex)
-    print(f"Результат: {'Всё хорошо!' if result else 'Что-то пошло не так!'}\n")
+for test in test_patterns:
+    print("разбор на лексемы: ", test)
+    lexer = RegexLexer(test)
+    tokens = lexer.analyze_text()
+    for token in tokens:
+        print(token)
+    print()
