@@ -120,7 +120,7 @@ class ExprRefNode:
 
     def __repr__(self):
         return f"ExprRefNode({self.ref_id})"
-
+    
 class Parser:
     def __init__(self, tokens):
         self.tokens = tokens
@@ -128,9 +128,6 @@ class Parser:
         self.group_count = 0
         self.max_groups = 9
         self.in_lookahead = False
-
-        # group_id -> AST подграмматики
-        self.groups_ast = {}
 
     def current_token(self):
         if self.pos < len(self.tokens):
@@ -149,10 +146,11 @@ class Parser:
     def parse(self):
         node = self.parse_alternation()
         if self.current_token() is not None:
-            # на тот случай, если что-то осталось непрочитанное, то синтаксическая ошибка
             raise RegexParserError("Лишние символы после корректного выражения")
-        # проверка синтаксической корректности
-        self.check_references(node, defined_groups=set())
+        # первый проход: тут собираем все захватывающие группы, которые присутствуют в AST.
+        all_groups = self.collect_groups(node)
+        # второй проход: тут проверяем, что все ссылки ссылаются на существующие группы.
+        self.validate_expr_references(node, all_groups)
         return node
 
     def parse_alternation(self):
@@ -198,7 +196,6 @@ class Parser:
             group_id = self.group_count
             node = self.parse_alternation()
             self.eat('CLOSE')
-            self.groups_ast[group_id] = node
             return GroupNode(group_id, node)
 
         elif tok.token_type == 'NONCAP_OPEN':
@@ -234,64 +231,60 @@ class Parser:
 
         else:
             raise RegexParserError(f"Некорректный токен: {tok}")
+        
 
-    def check_references(self, node, defined_groups):
-        if isinstance(node, CharNode):
-            return defined_groups
-
-        elif isinstance(node, ExprRefNode):
-            # тут рекурския 
-            return defined_groups
-
-        elif isinstance(node, GroupNode):
-            # внутри группы сначала проверка содержимого
-            new_defined = self.check_references(node.node, defined_groups)
-            # после конца группы эта группа считается определённой
-            new_defined = set(new_defined)
-            new_defined.add(node.group_id)
-            return new_defined
-
+    def collect_groups(self, node):
+        # первый проход: собираем все захватывающие группы, которые присутствуют в AST. И возвращает множество номеров групп.
+        groups = set()
+        if isinstance(node, GroupNode):
+            groups.add(node.group_id)
+            groups |= self.collect_groups(node.node)
         elif isinstance(node, NonCapGroupNode):
-            return self.check_references(node.node, defined_groups)
+            groups |= self.collect_groups(node.node)
+        elif isinstance(node, LookaheadNode):
+            # здесь также проверка, что внутри опережающих проверок нет захватывающих групп
+            self.check_no_cap_and_lookahead(node.node, inside_lookahead=True)
+            groups |= self.collect_groups(node.node)
+        elif isinstance(node, StarNode):
+            groups |= self.collect_groups(node.node)
+        elif isinstance(node, ConcatNode):
+            for child in node.nodes:
+                groups |= self.collect_groups(child)
+        elif isinstance(node, AltNode):
+            for branch in node.branches:
+                groups |= self.collect_groups(branch)
+        # важно, что для ExprRefNode и CharNode группы не добавляются.
+        return groups
 
+    def validate_expr_references(self, node, all_groups):
+        # второй проход: проверяем, что каждая ссылка на группу (ExprRefNode) ссылается на существующую захватывающую группу (то есть, ее номер есть в all_groups).
+        if isinstance(node, ExprRefNode):
+            if node.ref_id not in all_groups:
+                raise RegexParserError(f"Ссылка на неинициализированную группу: {node.ref_id}")
+        elif isinstance(node, GroupNode):
+            self.validate_expr_references(node.node, all_groups)
+        elif isinstance(node, NonCapGroupNode):
+            self.validate_expr_references(node.node, all_groups)
         elif isinstance(node, LookaheadNode):
             # необходимо проверить, что внутри нет групп захвата и нет других lookahead
             self.check_no_cap_and_lookahead(node.node, inside_lookahead=True)
-            # тут ссылки на группы должны быть из уже определённых
-            return self.check_references(node.node, defined_groups)
-
+            self.validate_expr_references(node.node, all_groups)
         elif isinstance(node, StarNode):
-            return self.check_references(node.node, defined_groups)
-
+            self.validate_expr_references(node.node, all_groups)
         elif isinstance(node, ConcatNode):
-            cur_defined = defined_groups
             for child in node.nodes:
-                cur_defined = self.check_references(child, cur_defined)
-            return cur_defined
-
+                self.validate_expr_references(child, all_groups)
         elif isinstance(node, AltNode):
-            # сначала было пересечение, на теперь тут будет объединение,
-            # чтобы ситуации вроде (a|(bb))(a|(?2)) были корректными
-            all_defs = []
             for branch in node.branches:
-                branch_defs = self.check_references(branch, defined_groups)
-                all_defs.append(branch_defs)
-            union_defs = set()
-            for d in all_defs:
-                union_defs.update(d)
-            return union_defs
+                self.validate_expr_references(branch, all_groups)
 
-        else:
-            raise RegexParserError("Неизвестный тип узла AST при проверке ссылок")
-
-    def check_no_cap_and_lookahead(self, node, inside_lookahead): # проверка, что внутри лукахедов нет захватывающих групп и лукахедов       
+    def check_no_cap_and_lookahead(self, node, inside_lookahead):
+        # рекурсивная проверка: внутри опережающих проверок не допускаются захватывающие группы и вложенные опережающие проверки.
         if isinstance(node, GroupNode) and inside_lookahead:
             raise RegexParserError("Внутри опережающей проверки не допускаются захватывающие группы")
         if isinstance(node, LookaheadNode) and inside_lookahead:
             raise RegexParserError("Внутри опережающей проверки не допускаются другие опережающие проверки")
-
         if isinstance(node, (NonCapGroupNode, LookaheadNode, StarNode, ConcatNode, AltNode)):
-            # рекурсивная проверка для детей
             if isinstance(node, NonCapGroupNode):
                 self.check_no_cap_and_lookahead(node.node, inside_lookahead)
             elif isinstance(node, LookaheadNode):
@@ -305,18 +298,18 @@ class Parser:
                 for b in node.branches:
                     self.check_no_cap_and_lookahead(b, inside_lookahead)
 
+
 # тестирование
 
 test_patterns = [
-    "()",  # Пустая группа
+    "(a)",  # Пустая группа
     "(a|b)(c|d)(e|f)(g|h)(i|j)(k|l)(m|n)(o|p)(q|r)",  # 9 групп
     "(a|b)(c|d)(e|f)(g|h)(i|j)(k|l)(m|n)(o|p)(q|r)(s|t)",  # 10 групп (ошибка)
     "((?1))",  # Правильная рекурсия
     "*a",
     "a))",
-    "()",  # не ок
     "(a|b)(?=c)",  # ок
-    "a)",
+    "a)",  # не ок 
     "a|",
     "|a",
     "(a|*)",
@@ -327,6 +320,11 @@ test_patterns = [
     "((?=ab*(a|a*))(a|b))*aa",  # не ок
     "aaa|(?=ab)a*b*a*",
     "(a|b)c*", 
+    "((?1)abc)",
+    "(a|(?2)b)(a(?1))",
+    "((?=(aaa|aa|a)*b)a(a|b))*",
+    "((?=(?:aaa|aa|a)*b)a(a|b))*",
+    "(a)(?2)"
 ]
 
 
